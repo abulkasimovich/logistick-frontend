@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: fleet_command
+      POSTGRES_USER: fleet_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fleet_pass_2024}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fleet_user -d fleet_command"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: fleet_command
+      DB_USER: fleet_user
+      DB_PASSWORD: ${DB_PASSWORD:-fleet_pass_2024}
+      JWT_SECRET: ${JWT_SECRET:-fleet_jwt_secret_min_32_chars_here}
+      JWT_EXPIRES_IN: 15m
+      REFRESH_SECRET: ${REFRESH_SECRET:-fleet_refresh_secret_min_32_chars}
+      REFRESH_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/stats/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:3000/api
+      - VITE_WS_URL=http://localhost:3000
+
+volumes:
+  postgres_data:
